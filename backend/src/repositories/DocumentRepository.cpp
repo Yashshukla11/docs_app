@@ -33,13 +33,15 @@ Document DocumentRepository::mapRowToDocument(sqlite3_stmt *stmt)
     const char *title = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 1));
     const char *content = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 2));
     const char *owner_id = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 3));
-    const char *created_at = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 4));
-    const char *updated_at = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 5));
+    int version = sqlite3_column_int(stmt, 4);
+    const char *created_at = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 5));
+    const char *updated_at = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 6));
 
     doc.setId(id ? id : "");
     doc.setTitle(title ? title : "");
     doc.setContent(content ? content : "");
     doc.setOwnerId(owner_id ? owner_id : "");
+    doc.setVersion(version);
     doc.setCreatedAt(created_at ? created_at : "");
     doc.setUpdatedAt(updated_at ? updated_at : "");
 
@@ -59,8 +61,8 @@ std::optional<Document> DocumentRepository::createDocument(const Document &docum
     newDoc.setId(id);
 
     const char *sql = R"(
-        INSERT INTO documents (id, title, content, owner_id, created_at, updated_at)
-        VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))
+        INSERT INTO documents (id, title, content, owner_id, version, created_at, updated_at)
+        VALUES (?, ?, ?, ?, 1, datetime('now'), datetime('now'))
     )";
 
     sqlite3_stmt *stmt;
@@ -103,7 +105,7 @@ std::optional<Document> DocumentRepository::findById(const std::string &id)
     if (!conn)
         return std::nullopt;
 
-    const char *sql = "SELECT id, title, content, owner_id, created_at, updated_at FROM documents WHERE id = ?";
+    const char *sql = "SELECT id, title, content, owner_id, version, created_at, updated_at FROM documents WHERE id = ?";
 
     sqlite3_stmt *stmt;
     int rc = sqlite3_prepare_v2(conn, sql, -1, &stmt, nullptr);
@@ -135,7 +137,7 @@ std::vector<Document> DocumentRepository::findByOwnerId(const std::string &owner
     if (!conn)
         return documents;
 
-    const char *sql = "SELECT id, title, content, owner_id, created_at, updated_at FROM documents WHERE owner_id = ? ORDER BY created_at DESC";
+    const char *sql = "SELECT id, title, content, owner_id, version, created_at, updated_at FROM documents WHERE owner_id = ? ORDER BY created_at DESC";
 
     sqlite3_stmt *stmt;
     int rc = sqlite3_prepare_v2(conn, sql, -1, &stmt, nullptr);
@@ -164,8 +166,8 @@ bool DocumentRepository::updateDocument(const Document &document)
 
     const char *sql = R"(
         UPDATE documents 
-        SET title = ?, content = ?, updated_at = datetime('now')
-        WHERE id = ?
+        SET title = ?, content = ?, version = version + 1, updated_at = datetime('now')
+        WHERE id = ? AND version = ?
     )";
 
     sqlite3_stmt *stmt;
@@ -180,17 +182,26 @@ bool DocumentRepository::updateDocument(const Document &document)
     std::string title_str = document.getTitle();
     std::string content_str = document.getContent();
     std::string id_str = document.getId();
+    int expected_version = document.getVersion();
 
     sqlite3_bind_text(stmt, 1, title_str.c_str(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 2, content_str.c_str(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 3, id_str.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 4, expected_version);
 
     rc = sqlite3_step(stmt);
+    int rows_affected = sqlite3_changes(conn);
     sqlite3_finalize(stmt);
 
     if (rc != SQLITE_DONE)
     {
         std::cerr << "SQL error: " << sqlite3_errmsg(conn) << std::endl;
+        return false;
+    }
+
+    // If no rows were affected, version mismatch occurred
+    if (rows_affected == 0)
+    {
         return false;
     }
 

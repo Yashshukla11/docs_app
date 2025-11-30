@@ -23,14 +23,14 @@ int main()
         .global()
         .headers("Content-Type", "Authorization")
         .methods("GET"_method, "POST"_method, "PUT"_method, "PATCH"_method, "DELETE"_method, "OPTIONS"_method)
-        .origin("http://localhost:5173"); // Vite default port
+        .origin("*"); // Allow all origins for development/network access
 
     // Setup all routes
     setupRoutes(app);
 
     std::cout << "Server starting on port 8080..." << std::endl;
-    // Start server
-    app.port(8080).multithreaded().run();
+    // Start server - bind to all interfaces (0.0.0.0) for network access
+    app.bindaddr("0.0.0.0").port(8080).multithreaded().run();
 
     // Cleanup
     db.close();

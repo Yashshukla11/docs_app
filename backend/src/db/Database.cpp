@@ -57,6 +57,7 @@ bool Database::initializeSchema()
             title TEXT NOT NULL,
             content TEXT DEFAULT '',
             owner_id TEXT NOT NULL,
+            version INTEGER DEFAULT 1 NOT NULL,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE
@@ -65,6 +66,30 @@ bool Database::initializeSchema()
 
     const char *create_index_documents_owner = "CREATE INDEX IF NOT EXISTS idx_documents_owner_id ON documents(owner_id);";
     const char *create_index_documents_created = "CREATE INDEX IF NOT EXISTS idx_documents_created_at ON documents(created_at);";
+
+    // Migration: Add version column if it doesn't exist (for existing databases)
+    const char *migrate_add_version = R"(
+        ALTER TABLE documents ADD COLUMN version INTEGER DEFAULT 1 NOT NULL;
+    )";
+
+    const char *create_collaborators_table = R"(
+        CREATE TABLE IF NOT EXISTS document_collaborators (
+            id TEXT PRIMARY KEY,
+            document_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            permission TEXT NOT NULL CHECK(permission IN ('read', 'write')),
+            shared_by TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+            FOREIGN KEY (shared_by) REFERENCES users(id) ON DELETE CASCADE,
+            UNIQUE(document_id, user_id)
+        );
+    )";
+
+    const char *create_index_collaborators_document = "CREATE INDEX IF NOT EXISTS idx_collaborators_document_id ON document_collaborators(document_id);";
+    const char *create_index_collaborators_user = "CREATE INDEX IF NOT EXISTS idx_collaborators_user_id ON document_collaborators(user_id);";
 
     if (!execute(create_users_table))
     {
@@ -81,6 +106,43 @@ bool Database::initializeSchema()
 
     execute(create_index_documents_owner);
     execute(create_index_documents_created);
+
+    if (!execute(create_collaborators_table))
+    {
+        return false;
+    }
+
+    execute(create_index_collaborators_document);
+    execute(create_index_collaborators_user);
+
+    // Migration: Add version column if it doesn't exist (for existing databases)
+    // Check if version column exists by querying table info
+    const char *check_version_sql = "PRAGMA table_info(documents)";
+    sqlite3_stmt *stmt;
+    bool version_exists = false;
+
+    if (sqlite3_prepare_v2(getConnection(), check_version_sql, -1, &stmt, nullptr) == SQLITE_OK)
+    {
+        while (sqlite3_step(stmt) == SQLITE_ROW)
+        {
+            const char *col_name = reinterpret_cast<const char *>(sqlite3_column_text(stmt, 1));
+            if (col_name && std::string(col_name) == "version")
+            {
+                version_exists = true;
+                break;
+            }
+        }
+        sqlite3_finalize(stmt);
+    }
+
+    // Add version column if it doesn't exist
+    if (!version_exists)
+    {
+        const char *migrate_add_version = "ALTER TABLE documents ADD COLUMN version INTEGER DEFAULT 1 NOT NULL";
+        execute(migrate_add_version);
+        // Update existing documents to have version 1
+        execute("UPDATE documents SET version = 1 WHERE version IS NULL");
+    }
 
     return true;
 }

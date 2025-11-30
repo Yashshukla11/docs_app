@@ -2,7 +2,7 @@
 	"info": {
 		"_postman_id": "docs-backend-api",
 		"name": "Docs Backend API",
-		"description": "Google Docs-like backend API collection with complete authentication, database integration, and document CRUD operations. All document endpoints require JWT authentication and verify document ownership.",
+		"description": "Google Docs-like backend API collection with complete authentication, database integration, document CRUD operations, and collaboration features. All endpoints require JWT authentication. Document access is granted to owners and collaborators (with appropriate permissions).",
 		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
 	},
 	"item": [
@@ -512,7 +512,7 @@
 								"documents"
 							]
 						},
-						"description": "Get all documents for the authenticated user. Returns list of documents owned by the user."
+						"description": "Get all documents for the authenticated user. Returns documents owned by the user AND documents shared with the user."
 					},
 					"response": [
 						{
@@ -796,7 +796,7 @@
 								"{{doc_id}}"
 							]
 						},
-						"description": "Get a specific document by ID. Requires ownership of the document."
+						"description": "Get a specific document by ID. Requires ownership OR collaboration access (read permission)."
 					},
 					"response": [
 						{
@@ -930,7 +930,7 @@
 								"{{doc_id}}"
 							]
 						},
-						"description": "Update document title and content. Requires ownership of the document."
+						"description": "Update document title and content. Requires ownership OR collaboration with 'write' permission."
 					},
 					"response": [
 						{
@@ -1285,30 +1285,150 @@
 						],
 						"body": {
 							"mode": "raw",
-							"raw": "{\n    \"user_id\": \"user_456\",\n    \"permission\": \"read\"\n}"
+							"raw": "{\n    \"email\": \"collaborator@example.com\",\n    \"permission\": \"write\"\n}"
 						},
 						"url": {
-							"raw": "{{base_url}}/api/documents/:doc_id/share",
+							"raw": "{{base_url}}/api/documents/{{doc_id}}/share",
 							"host": [
 								"{{base_url}}"
 							],
 							"path": [
 								"api",
 								"documents",
-								":doc_id",
+								"{{doc_id}}",
 								"share"
-							],
-							"variable": [
-								{
-									"key": "doc_id",
-									"value": "doc_123",
-									"type": "string"
-								}
 							]
 						},
-						"description": "Share document with other users"
+						"description": "Share document with user by email. Owner only. Permission: 'read' or 'write'"
 					},
-					"response": []
+					"response": [
+						{
+							"name": "Success",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{auth_token}}"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"email\": \"collaborator@example.com\",\n    \"permission\": \"write\"\n}"
+								},
+								"url": {
+									"raw": "{{base_url}}/api/documents/abc123/share",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"api",
+										"documents",
+										"abc123",
+										"share"
+									]
+								}
+							},
+							"status": "Created",
+							"code": 201,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								}
+							],
+							"body": "{\n    \"message\": \"Document shared successfully\",\n    \"collaboration\": {\n        \"id\": \"collab-123\",\n        \"document_id\": \"abc123\",\n        \"user_id\": \"user-789\",\n        \"permission\": \"write\",\n        \"shared_by\": \"owner-123\",\n        \"created_at\": \"2024-01-15 10:30:00\",\n        \"updated_at\": \"2024-01-15 10:30:00\"\n    },\n    \"collaborator\": {\n        \"id\": \"user-789\",\n        \"username\": \"collaborator\",\n        \"email\": \"collaborator@example.com\"\n    }\n}"
+						},
+						{
+							"name": "Access Denied",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{auth_token}}"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"email\": \"collaborator@example.com\",\n    \"permission\": \"write\"\n}"
+								},
+								"url": {
+									"raw": "{{base_url}}/api/documents/other-user-doc/share",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"api",
+										"documents",
+										"other-user-doc",
+										"share"
+									]
+								}
+							},
+							"status": "Forbidden",
+							"code": 403,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								}
+							],
+							"body": "{\n    \"error\": \"Access denied: Only document owner can share\"\n}"
+						},
+						{
+							"name": "User Not Found",
+							"originalRequest": {
+								"method": "POST",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{auth_token}}"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"email\": \"nonexistent@example.com\",\n    \"permission\": \"write\"\n}"
+								},
+								"url": {
+									"raw": "{{base_url}}/api/documents/abc123/share",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"api",
+										"documents",
+										"abc123",
+										"share"
+									]
+								}
+							},
+							"status": "Not Found",
+							"code": 404,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								}
+							],
+							"body": "{\n    \"error\": \"User not found with email: nonexistent@example.com\"\n}"
+						}
+					]
 				},
 				{
 					"name": "Get Collaborators",
@@ -1322,27 +1442,291 @@
 							}
 						],
 						"url": {
-							"raw": "{{base_url}}/api/documents/:doc_id/collaborators",
+							"raw": "{{base_url}}/api/documents/{{doc_id}}/collaborators",
 							"host": [
 								"{{base_url}}"
 							],
 							"path": [
 								"api",
 								"documents",
-								":doc_id",
+								"{{doc_id}}",
 								"collaborators"
+							]
+						},
+						"description": "Get list of collaborators for a document. Owner or collaborator can view."
+					},
+					"response": [
+						{
+							"name": "Success",
+							"originalRequest": {
+								"method": "GET",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{auth_token}}"
+									}
+								],
+								"url": {
+									"raw": "{{base_url}}/api/documents/abc123/collaborators",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"api",
+										"documents",
+										"abc123",
+										"collaborators"
+									]
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								}
+							],
+							"body": "{\n    \"collaborators\": [\n        {\n            \"id\": \"collab-123\",\n            \"user_id\": \"user-789\",\n            \"username\": \"collaborator\",\n            \"email\": \"collaborator@example.com\",\n            \"permission\": \"write\",\n            \"shared_by\": \"owner-123\",\n            \"shared_by_username\": \"owner\",\n            \"created_at\": \"2024-01-15 10:30:00\",\n            \"updated_at\": \"2024-01-15 10:30:00\"\n        }\n    ],\n    \"count\": 1\n}"
+						}
+					]
+				},
+				{
+					"name": "Update Collaborator Permission",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}",
+								"type": "text"
+							},
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"permission\": \"read\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/documents/{{doc_id}}/collaborators/:collaborator_id",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"documents",
+								"{{doc_id}}",
+								"collaborators",
+								":collaborator_id"
 							],
 							"variable": [
 								{
-									"key": "doc_id",
-									"value": "doc_123",
+									"key": "collaborator_id",
+									"value": "user-789",
 									"type": "string"
 								}
 							]
 						},
-						"description": "Get list of collaborators for a document"
+						"description": "Update collaborator permission. Owner only. Permission: 'read' or 'write'"
 					},
-					"response": []
+					"response": [
+						{
+							"name": "Success",
+							"originalRequest": {
+								"method": "PATCH",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{auth_token}}"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"permission\": \"read\"\n}"
+								},
+								"url": {
+									"raw": "{{base_url}}/api/documents/abc123/collaborators/user-789",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"api",
+										"documents",
+										"abc123",
+										"collaborators",
+										"user-789"
+									]
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								}
+							],
+							"body": "{\n    \"message\": \"Permission updated successfully\",\n    \"collaboration\": {\n        \"id\": \"collab-123\",\n        \"document_id\": \"abc123\",\n        \"user_id\": \"user-789\",\n        \"permission\": \"read\",\n        \"updated_at\": \"2024-01-15 11:00:00\"\n    }\n}"
+						},
+						{
+							"name": "Access Denied",
+							"originalRequest": {
+								"method": "PATCH",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{auth_token}}"
+									},
+									{
+										"key": "Content-Type",
+										"value": "application/json"
+									}
+								],
+								"body": {
+									"mode": "raw",
+									"raw": "{\n    \"permission\": \"read\"\n}"
+								},
+								"url": {
+									"raw": "{{base_url}}/api/documents/other-user-doc/collaborators/user-789",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"api",
+										"documents",
+										"other-user-doc",
+										"collaborators",
+										"user-789"
+									]
+								}
+							},
+							"status": "Forbidden",
+							"code": 403,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								}
+							],
+							"body": "{\n    \"error\": \"Access denied: Only document owner can update permissions\"\n}"
+						}
+					]
+				},
+				{
+					"name": "Remove Collaborator",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{
+								"key": "Authorization",
+								"value": "Bearer {{auth_token}}",
+								"type": "text"
+							}
+						],
+						"url": {
+							"raw": "{{base_url}}/api/documents/{{doc_id}}/collaborators/:collaborator_id",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"documents",
+								"{{doc_id}}",
+								"collaborators",
+								":collaborator_id"
+							],
+							"variable": [
+								{
+									"key": "collaborator_id",
+									"value": "user-789",
+									"type": "string"
+								}
+							]
+						},
+						"description": "Remove collaborator from document. Owner only."
+					},
+					"response": [
+						{
+							"name": "Success",
+							"originalRequest": {
+								"method": "DELETE",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{auth_token}}"
+									}
+								],
+								"url": {
+									"raw": "{{base_url}}/api/documents/abc123/collaborators/user-789",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"api",
+										"documents",
+										"abc123",
+										"collaborators",
+										"user-789"
+									]
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								}
+							],
+							"body": "{\n    \"message\": \"Collaborator removed successfully\"\n}"
+						},
+						{
+							"name": "Access Denied",
+							"originalRequest": {
+								"method": "DELETE",
+								"header": [
+									{
+										"key": "Authorization",
+										"value": "Bearer {{auth_token}}"
+									}
+								],
+								"url": {
+									"raw": "{{base_url}}/api/documents/other-user-doc/collaborators/user-789",
+									"host": [
+										"{{base_url}}"
+									],
+									"path": [
+										"api",
+										"documents",
+										"other-user-doc",
+										"collaborators",
+										"user-789"
+									]
+								}
+							},
+							"status": "Forbidden",
+							"code": 403,
+							"_postman_previewlanguage": "json",
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								}
+							],
+							"body": "{\n    \"error\": \"Access denied: Only document owner can remove collaborators\"\n}"
+						}
+					]
 				}
 			]
 		}

@@ -69,6 +69,11 @@ export default function Documents() {
     });
   };
 
+  const isOwner = (doc) => {
+    const userId = localStorage.getItem('user_id');
+    return doc.owner_id === userId;
+  };
+
   return (
     <div className="documents-container">
       <header className="documents-header">
@@ -111,28 +116,40 @@ export default function Documents() {
           </div>
         ) : (
           <div className="documents-grid">
-            {documents.map((doc) => (
-              <div
-                key={doc.id}
-                className="document-card"
-                onClick={() => navigate(`/documents/${doc.id}`)}
-              >
-                <div className="document-icon">📄</div>
-                <div className="document-info">
-                  <h3 className="document-title">{doc.title}</h3>
-                  <p className="document-meta">
-                    {formatDate(doc.updated_at) || formatDate(doc.created_at)}
-                  </p>
-                </div>
-                <button
-                  className="delete-button"
-                  onClick={(e) => handleDeleteDocument(doc.id, e)}
-                  title="Delete document"
+            {documents.map((doc) => {
+              const owned = isOwner(doc);
+              return (
+                <div
+                  key={doc.id}
+                  className="document-card"
+                  onClick={() => navigate(`/documents/${doc.id}`)}
                 >
-                  ×
-                </button>
-              </div>
-            ))}
+                  <div className="document-icon">📄</div>
+                  <div className="document-info">
+                    <div className="document-title-row">
+                      <h3 className="document-title">{doc.title}</h3>
+                      {!owned && (
+                        <span className="shared-badge" title="Shared with you">
+                          Shared
+                        </span>
+                      )}
+                    </div>
+                    <p className="document-meta">
+                      {formatDate(doc.updated_at) || formatDate(doc.created_at)}
+                    </p>
+                  </div>
+                  {owned && (
+                    <button
+                      className="delete-button"
+                      onClick={(e) => handleDeleteDocument(doc.id, e)}
+                      title="Delete document"
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </main>

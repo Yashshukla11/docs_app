@@ -2,8 +2,16 @@
 #include "controllers/AuthController.h"
 #include "controllers/DocumentController.h"
 #include "utils/JWT.h"
+#include "utils/WebSocketManager.h"
+#include "services/CollaborationService.h"
+#include "services/DocumentService.h"
+#include "repositories/DocumentRepository.h"
+#include "repositories/UserRepository.h"
+#include "models/Document.h"
 #include "crow/middlewares/cors.h"
+#include "crow/json.h"
 #include <string>
+#include <sstream>
 
 // Middleware to verify JWT token and extract user info
 std::pair<bool, std::string> verifyAndExtractUser(const crow::request &req)
@@ -260,7 +268,7 @@ void setupRoutes(crow::App<crow::CORSHandler> &app)
         } });
 
     // Update collaborator permissions
-    CROW_ROUTE(app, "/api/documents/<string>/collaborators/<string>/permissions")
+    CROW_ROUTE(app, "/api/documents/<string>/collaborators/<string>")
         .methods("PATCH"_method)([](const crow::request &req, std::string doc_id, std::string collaborator_id)
                                  {
         auto [valid, user_id] = verifyAndExtractUser(req);
@@ -349,31 +357,221 @@ void setupRoutes(crow::App<crow::CORSHandler> &app)
         } });
 
     // WebSocket endpoint for real-time collaboration
-    // TODO: Fix WebSocket route with CORS middleware
-    // Note: WebSocket handlers don't support route parameters directly
-    // The doc_id would need to be extracted from the connection URL or stored in userdata
-    /*
-    CROW_WEBSOCKET_ROUTE(app, "/api/documents/<string>/ws")
+    // Connection data structure
+    struct ConnectionData
+    {
+        std::string doc_id;
+        std::string user_id;
+    };
+
+    // WebSocket route: /api/documents/ws?doc_id={doc_id}&token={token}
+    CROW_WEBSOCKET_ROUTE(app, "/api/documents/ws")
+        .onaccept([](const crow::request &req, void **userdata)
+                  {
+            std::cout << "[WebSocket] Connection attempt to: " << req.url << std::endl;
+            
+            // Extract doc_id from query parameter
+            auto doc_id_param = req.url_params.get("doc_id");
+            if (!doc_id_param) {
+                std::cout << "[WebSocket] Missing doc_id parameter" << std::endl;
+                return false;
+            }
+            std::string doc_id = std::string(doc_id_param);
+            std::cout << "[WebSocket] Document ID: " << doc_id << std::endl;
+            
+            // Verify JWT token from query parameter (browser WebSocket doesn't support custom headers)
+            auto token_param = req.url_params.get("token");
+            if (!token_param) {
+                std::cout << "[WebSocket] Missing token parameter" << std::endl;
+                return false;
+            }
+            std::string token = std::string(token_param);
+            
+            if (token.empty()) {
+                std::cout << "[WebSocket] Empty token" << std::endl;
+                return false;
+            }
+            
+            std::string user_id = JWT::verifyAndGetUserId(token);
+            if (user_id.empty()) {
+                std::cout << "[WebSocket] Invalid token" << std::endl;
+                return false;
+            }
+            std::cout << "[WebSocket] User ID: " << user_id << std::endl;
+            
+            // Check access to document
+            bool hasAccess = CollaborationService::checkAccess(doc_id, user_id, "read");
+            if (!hasAccess) {
+                std::cout << "[WebSocket] Access denied for user " << user_id << " to document " << doc_id << std::endl;
+                return false;
+            }
+            
+            std::cout << "[WebSocket] Connection accepted for user " << user_id << " to document " << doc_id << std::endl;
+            
+            // Store doc_id and user_id in userdata
+            *userdata = new ConnectionData{doc_id, user_id};
+            return true; })
         .onopen([](crow::websocket::connection &conn)
                 {
-        // Handle WebSocket connection open
-        // Extract doc_id from conn.get_url() if needed
-        CROW_LOG_INFO << "WebSocket opened"; })
+            auto* data = static_cast<ConnectionData*>(conn.userdata());
+            if (data) {
+                std::cout << "[WebSocket] Connection opened for user " << data->user_id << " to document " << data->doc_id << std::endl;
+                WebSocketManager::getInstance().joinDocument(data->doc_id, &conn, data->user_id);
+                
+                // Get username for the user
+                std::string username = "User";
+                try {
+                    UserRepository userRepo;
+                    auto user = userRepo.findById(data->user_id);
+                    if (user.has_value()) {
+                        username = user.value().getUsername();
+                    }
+                } catch (...) {
+                    // Use default username if lookup fails
+                }
+                
+                // Notify others that user joined
+                crow::json::wvalue join_msg;
+                join_msg["type"] = "user_joined";
+                join_msg["user_id"] = data->user_id;
+                join_msg["username"] = username;
+                join_msg["doc_id"] = data->doc_id;
+                std::string join_msg_str = join_msg.dump();
+                WebSocketManager::getInstance().broadcastToDocument(data->doc_id, join_msg_str, &conn);
+            } })
         .onclose([](crow::websocket::connection &conn, const std::string &reason, uint16_t)
                  {
-        // Handle WebSocket connection close
-        CROW_LOG_INFO << "WebSocket closed: " << reason; })
+            auto* data = static_cast<ConnectionData*>(conn.userdata());
+            if (data) {
+                // Notify others that user left
+                crow::json::wvalue leave_msg;
+                leave_msg["type"] = "user_left";
+                leave_msg["user_id"] = data->user_id;
+                leave_msg["doc_id"] = data->doc_id;
+                std::string leave_msg_str = leave_msg.dump();
+                WebSocketManager::getInstance().broadcastToDocument(data->doc_id, leave_msg_str);
+                
+                WebSocketManager::getInstance().leaveAll(&conn);
+                delete data;
+            } })
         .onmessage([](crow::websocket::connection &conn, const std::string &data, bool is_binary)
                    {
-        // Handle incoming WebSocket messages (real-time edits)
-        try {
-            // Extract doc_id from connection URL if needed
-            // For now, just log the message
-            CROW_LOG_INFO << "WebSocket message received: " << data;
-        } catch (const std::exception& e) {
-            CROW_LOG_ERROR << "WebSocket error: " << e.what();
-        } });
-    */
+            if (is_binary) return;
+            
+            try {
+                auto* conn_data = static_cast<ConnectionData*>(conn.userdata());
+                if (!conn_data) return;
+                
+                auto msg = crow::json::load(data);
+                if (!msg) return;
+                
+                std::string type = msg["type"].s();
+                
+                if (type == "edit") {
+                    // For real-time collaboration, just broadcast edits
+                    // Don't save to DB on every keystroke - let HTTP save handle persistence
+                    // This prevents version conflicts from rapid edits
+                    std::cout << "[WebSocket] Received edit message from user " << conn_data->user_id << " for document " << conn_data->doc_id << std::endl;
+                    auto edit_msg = crow::json::load(data);
+                    if (edit_msg) {
+                        // Create a new message with userId included
+                        crow::json::wvalue broadcast_msg;
+                        broadcast_msg["type"] = "edit";
+                        if (edit_msg.has("content")) {
+                            broadcast_msg["content"] = std::string(edit_msg["content"].s());
+                        }
+                        if (edit_msg.has("version")) {
+                            broadcast_msg["version"] = static_cast<int>(edit_msg["version"].i());
+                        }
+                        broadcast_msg["userId"] = conn_data->user_id;
+                        std::string edit_msg_str = broadcast_msg.dump();
+                        // Broadcast to ALL users including sender (so everyone gets updates)
+                        WebSocketManager::getInstance().broadcastToDocument(conn_data->doc_id, edit_msg_str);
+                        std::cout << "[WebSocket] Broadcasted edit message to all users in document " << conn_data->doc_id << std::endl;
+                    } else {
+                        // Fallback: broadcast original
+                        WebSocketManager::getInstance().broadcastToDocument(conn_data->doc_id, data, &conn);
+                    }
+                } else if (type == "cursor") {
+                    // Get username and add to cursor message
+                    std::string username = "User";
+                    try {
+                        UserRepository userRepo;
+                        auto user = userRepo.findById(conn_data->user_id);
+                        if (user.has_value()) {
+                            username = user.value().getUsername();
+                        }
+                    } catch (...) {
+                        // Use default username if lookup fails
+                    }
+                    
+                    // Parse and rebuild cursor message with username
+                    auto cursor_msg = crow::json::load(data);
+                    if (cursor_msg) {
+                        crow::json::wvalue cursor_wmsg;
+                        cursor_wmsg["type"] = "cursor";
+                        if (cursor_msg.has("position")) {
+                            cursor_wmsg["position"] = static_cast<int>(cursor_msg["position"].i());
+                        }
+                        if (cursor_msg.has("userId")) {
+                            cursor_wmsg["userId"] = std::string(cursor_msg["userId"].s());
+                        }
+                        cursor_wmsg["username"] = username;
+                        std::string cursor_msg_str = cursor_wmsg.dump();
+                        WebSocketManager::getInstance().broadcastToDocument(conn_data->doc_id, cursor_msg_str, &conn);
+                    } else {
+                        // Fallback: just broadcast original
+                        WebSocketManager::getInstance().broadcastToDocument(conn_data->doc_id, data, &conn);
+                    }
+                } else if (type == "save") {
+                    // Explicit save request via WebSocket (optional, can use HTTP instead)
+                    if (msg.has("content")) {
+                        try {
+                            std::string content = msg["content"].s();
+                            std::string title = msg.has("title") ? std::string(msg["title"].s()) : std::string("");
+                            int expected_version = msg.has("version") ? static_cast<int>(msg["version"].i()) : -1;
+                            
+                            DocumentRepository docRepo;
+                            auto doc = docRepo.findById(conn_data->doc_id);
+                            if (doc.has_value()) {
+                                std::string doc_title = title.empty() ? doc.value().getTitle() : title;
+                                
+                                // Update document via service (with version check)
+                                DocumentService::updateDocument(
+                                    conn_data->doc_id,
+                                    conn_data->user_id,
+                                    doc_title,
+                                    content,
+                                    expected_version
+                                );
+                                
+                                // Get updated document to broadcast with new version
+                                auto updatedDoc = docRepo.findById(conn_data->doc_id);
+                                if (updatedDoc.has_value()) {
+                                    crow::json::wvalue save_msg;
+                                    save_msg["type"] = "saved";
+                                    save_msg["content"] = updatedDoc.value().getContent();
+                                    save_msg["version"] = updatedDoc.value().getVersion();
+                                    save_msg["userId"] = conn_data->user_id;
+                                    std::string save_msg_str = save_msg.dump();
+                                    
+                                    // Broadcast to all users
+                                    WebSocketManager::getInstance().broadcastToDocument(conn_data->doc_id, save_msg_str);
+                                }
+                            }
+                        } catch (const std::exception& e) {
+                            // Send error back to sender only
+                            crow::json::wvalue error_msg;
+                            error_msg["type"] = "save_error";
+                            error_msg["error"] = e.what();
+                            std::string error_msg_str = error_msg.dump();
+                            conn.send_text(error_msg_str);
+                        }
+                    }
+                }
+            } catch (const std::exception& e) {
+                CROW_LOG_ERROR << "WebSocket message error: " << e.what();
+            } });
 
     // ==================== COMMENTS & SUGGESTIONS ====================
 

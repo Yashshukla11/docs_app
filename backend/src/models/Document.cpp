@@ -2,12 +2,12 @@
 #include <algorithm>
 
 Document::Document() : id_(""), title_(""), content_(""), owner_id_(""),
-                       created_at_(""), updated_at_("") {}
+                       version_(1), created_at_(""), updated_at_("") {}
 
 Document::Document(const std::string &id, const std::string &title,
                    const std::string &content, const std::string &owner_id)
     : id_(id), title_(title), content_(content), owner_id_(owner_id),
-      created_at_(""), updated_at_("") {}
+      version_(1), created_at_(""), updated_at_("") {}
 
 bool Document::isValid() const
 {

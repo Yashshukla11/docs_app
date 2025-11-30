@@ -1,4 +1,14 @@
-const API_BASE_URL = 'http://localhost:8080/api';
+// Auto-detect API URL based on current host
+const getApiBaseUrl = () => {
+  // If running on localhost, use localhost backend
+  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    return 'http://localhost:8080/api';
+  }
+  // Otherwise, use the same hostname with port 8080
+  return `http://${window.location.hostname}:8080/api`;
+};
+
+const API_BASE_URL = getApiBaseUrl();
 
 // Helper function to get auth token from localStorage
 const getAuthToken = () => {
@@ -32,6 +42,14 @@ const fetchWithAuth = async (url, options = {}) => {
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ error: 'Request failed' }));
+    // For 409 conflicts, preserve the full error object
+    if (response.status === 409) {
+      error.status = 409;
+      const err = new Error(JSON.stringify(error));
+      err.status = 409;
+      err.data = error;
+      throw err;
+    }
     throw new Error(error.error || 'Request failed');
   }
 
@@ -107,10 +125,14 @@ export const documentsAPI = {
     });
   },
 
-  update: async (docId, title, content) => {
+  update: async (docId, title, content, version = null) => {
+    const body = { title, content };
+    if (version !== null) {
+      body.version = version;
+    }
     return fetchWithAuth(`/documents/${docId}`, {
       method: 'PATCH',
-      body: JSON.stringify({ title, content }),
+      body: JSON.stringify(body),
     });
   },
 
@@ -123,6 +145,33 @@ export const documentsAPI = {
 
   delete: async (docId) => {
     return fetchWithAuth(`/documents/${docId}`, {
+      method: 'DELETE',
+    });
+  },
+};
+
+// Collaboration API
+export const collaborationAPI = {
+  share: async (docId, email, permission) => {
+    return fetchWithAuth(`/documents/${docId}/share`, {
+      method: 'POST',
+      body: JSON.stringify({ email, permission }),
+    });
+  },
+
+  getCollaborators: async (docId) => {
+    return fetchWithAuth(`/documents/${docId}/collaborators`);
+  },
+
+  updatePermission: async (docId, collaboratorId, permission) => {
+    return fetchWithAuth(`/documents/${docId}/collaborators/${collaboratorId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ permission }),
+    });
+  },
+
+  removeCollaborator: async (docId, collaboratorId) => {
+    return fetchWithAuth(`/documents/${docId}/collaborators/${collaboratorId}`, {
       method: 'DELETE',
     });
   },

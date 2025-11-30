@@ -1,0 +1,67 @@
+# C++ Build files
+build/
+cmake-build-*/
+*.o
+*.obj
+*.exe
+*.out
+*.app
+*.so
+*.dylib
+*.dll
+*.a
+*.lib
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+CTestTestfile.cmake
+_deps/
+
+# Compiled binaries
+docs_app
+*.bin
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+docs_backend.db
+
+# IDE files
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.code-workspace
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.backup
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Test files
+test_results/
+coverage/
+
+# Dependencies (if using vcpkg or conan)
+vcpkg_installed/
+.vcpkg/
+conanbuildinfo.*
+conaninfo.txt
+

@@ -1,6 +1,7 @@
 #pragma once
 #include <string>
 #include <memory>
+#include <mutex>
 
 struct sqlite3;
 
@@ -13,6 +14,7 @@ public:
     void close();
 
     sqlite3 *getConnection() const { return db_; }
+    std::mutex &getMutex() { return mutex_; }
 
     bool execute(const std::string &sql);
     bool initializeSchema();
@@ -27,4 +29,5 @@ private:
     Database() : db_(nullptr) {}
     sqlite3 *db_;
     std::string db_path_;
+    std::mutex mutex_;
 };

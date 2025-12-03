@@ -51,6 +51,7 @@ Document DocumentRepository::mapRowToDocument(sqlite3_stmt *stmt)
 std::optional<Document> DocumentRepository::createDocument(const Document &document)
 {
     auto &db = Database::getInstance();
+    std::lock_guard<std::mutex> lock(db.getMutex());
     sqlite3 *conn = db.getConnection();
 
     if (!conn)
@@ -100,6 +101,7 @@ std::optional<Document> DocumentRepository::createDocument(const Document &docum
 std::optional<Document> DocumentRepository::findById(const std::string &id)
 {
     auto &db = Database::getInstance();
+    std::lock_guard<std::mutex> lock(db.getMutex());
     sqlite3 *conn = db.getConnection();
 
     if (!conn)
@@ -132,6 +134,7 @@ std::vector<Document> DocumentRepository::findByOwnerId(const std::string &owner
 {
     std::vector<Document> documents;
     auto &db = Database::getInstance();
+    std::lock_guard<std::mutex> lock(db.getMutex());
     sqlite3 *conn = db.getConnection();
 
     if (!conn)
@@ -159,6 +162,7 @@ std::vector<Document> DocumentRepository::findByOwnerId(const std::string &owner
 bool DocumentRepository::updateDocument(const Document &document)
 {
     auto &db = Database::getInstance();
+    std::lock_guard<std::mutex> lock(db.getMutex());
     sqlite3 *conn = db.getConnection();
 
     if (!conn)

@@ -29,6 +29,9 @@ export default function CursorOverlay({ textareaRef, userCursors, content }) {
   const lineHeight = parseFloat(style.lineHeight) || 20;
   const paddingTop = parseFloat(style.paddingTop) || 0;
   const paddingLeft = parseFloat(style.paddingLeft) || 0;
+  const fontSize = parseFloat(style.fontSize) || 16;
+  // Small baseline offset so the overlay cursor lines up closer to the actual caret
+  const baselineOffset = fontSize * 0.2;
 
   return (
     <div
@@ -44,8 +47,10 @@ export default function CursorOverlay({ textareaRef, userCursors, content }) {
       }}
     >
       {visibleCursors.map((cursor) => {
-        const top = (cursor.line * lineHeight) + paddingTop + textarea.scrollTop;
-        const left = paddingLeft + 10; // Approximate position
+        // Adjust for textarea scroll so overlay cursor stays aligned with text
+        const top = (cursor.line * lineHeight) + paddingTop - textarea.scrollTop + baselineOffset;
+        // Slightly inset from the left padding to better match caret position
+        const left = paddingLeft + 4;
 
         return (
           <div key={cursor.userId} style={{ position: 'relative' }}>

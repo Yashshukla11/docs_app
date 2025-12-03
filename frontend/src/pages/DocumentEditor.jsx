@@ -91,37 +91,22 @@ export default function DocumentEditor() {
         setConflictData(null);
         setError('');
       } catch (err) {
-        // Only show error if it's a conflict AND we're not in a real-time sync scenario
+        // Handle conflicts silently (single-user scenario)
         if (err.status === 409 || (err.data && err.data.conflict)) {
           const errorData = err.data || JSON.parse(err.message || '{}');
-          
-          // Check if the content matches what we have (might be from WebSocket)
-          const serverContent = errorData.current_content || '';
-          const ourContent = contentRef.current;
-          
-          // If content matches, it means WebSocket already synced it - don't show error
-          if (serverContent === ourContent) {
-            // Just update version silently
-            if (errorData.current_version) {
-              setVersion(errorData.current_version);
-              lastSaveVersionRef.current = errorData.current_version;
-              setDocument({ ...document, version: errorData.current_version });
-            }
-            setConflictData(null);
-            setError('');
-          } else {
-            // Real conflict - show error
-            if (errorData.current_version) {
-              setVersion(errorData.current_version);
-              lastSaveVersionRef.current = errorData.current_version;
-            }
-            setConflictData({
-              currentVersion: errorData.current_version,
-              currentContent: errorData.current_content,
-              yourVersion: versionToUse
-            });
-            setError('Document was modified by another user. Please refresh to see the latest version.');
+          const serverContent = errorData.current_content || contentRef.current;
+
+          // Always trust server version without showing banner
+          if (errorData.current_version) {
+            setVersion(errorData.current_version);
+            lastSaveVersionRef.current = errorData.current_version;
           }
+
+          setContent(serverContent);
+          contentRef.current = serverContent;
+          setDocument({ ...document, content: serverContent, version: errorData.current_version || document?.version });
+          setConflictData(null);
+          setError('');
         }
         // Otherwise, silent fail for auto-save (user can manually save)
       }
@@ -406,15 +391,21 @@ export default function DocumentEditor() {
       setDocument(data.document);
       setSaving(false);
     } catch (err) {
-      // Check if it's a version conflict (409 status)
+      // Handle conflicts silently (single-user scenario)
       if (err.status === 409 || (err.data && err.data.conflict)) {
         const errorData = err.data || JSON.parse(err.message || '{}');
-        setConflictData({
-          currentVersion: errorData.current_version,
-          currentContent: errorData.current_content,
-          yourVersion: version
-        });
-        setError('Document was modified by another user. Please refresh to see the latest version.');
+        const serverContent = errorData.current_content || contentRef.current;
+
+        if (errorData.current_version) {
+          setVersion(errorData.current_version);
+          lastSaveVersionRef.current = errorData.current_version;
+        }
+
+        setContent(serverContent);
+        contentRef.current = serverContent;
+        setDocument({ ...document, content: serverContent, version: errorData.current_version || document?.version });
+        setConflictData(null);
+        setError('');
       } else {
         try {
           const errorData = JSON.parse(err.message || '{}');
@@ -495,6 +486,84 @@ export default function DocumentEditor() {
       setError(err.message || 'Failed to update permission');
     }
   };
+
+  const applyContentChange = (newContent) => {
+    if (isApplyingRemoteEdit.current) return;
+
+    setContent(newContent);
+    contentRef.current = newContent;
+
+    if (websocketService.isConnected() && (isOwner || permission === 'write')) {
+      // Clear any conflict errors when user is actively editing
+      setConflictData(null);
+      setError('');
+
+      console.log('[DocumentEditor] 📤 Sending edit via WebSocket, content length:', newContent.length);
+      websocketService.sendEdit({
+        content: newContent,
+        version: lastSaveVersionRef.current,
+        userId: localStorage.getItem('user_id')
+      });
+    } else {
+      console.log('[DocumentEditor] ⚠️ Not sending edit - websocket not connected or no write permission');
+    }
+  };
+
+  const wrapSelection = (before, after = before) => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    const value = contentRef.current;
+    const start = textarea.selectionStart ?? 0;
+    const end = textarea.selectionEnd ?? 0;
+    const selected = value.slice(start, end);
+    const newText = value.slice(0, start) + before + selected + after + value.slice(end);
+
+    applyContentChange(newText);
+
+    // Restore selection inside wrapped text
+    requestAnimationFrame(() => {
+      const cursorStart = start + before.length;
+      const cursorEnd = cursorStart + selected.length;
+      textarea.focus();
+      textarea.setSelectionRange(cursorStart, cursorEnd);
+    });
+  };
+
+  const toggleListForSelection = (prefix) => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    const value = contentRef.current;
+    const start = textarea.selectionStart ?? 0;
+    const end = textarea.selectionEnd ?? 0;
+
+    // Expand to full lines
+    const before = value.lastIndexOf('\n', start - 1);
+    const after = value.indexOf('\n', end);
+    const lineStart = before === -1 ? 0 : before + 1;
+    const lineEnd = after === -1 ? value.length : after;
+
+    const block = value.slice(lineStart, lineEnd);
+    const lines = block.split('\n');
+    const allHavePrefix = lines.every((l) => l.startsWith(prefix));
+
+    const updated = lines
+      .map((l) => (allHavePrefix ? l.replace(new RegExp('^' + prefix.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')), '') : (l.trim().length ? prefix + l : l)))
+      .join('\n');
+
+    const newText = value.slice(0, lineStart) + updated + value.slice(lineEnd);
+    applyContentChange(newText);
+
+    requestAnimationFrame(() => {
+      textarea.focus();
+      const delta = updated.length - block.length;
+      textarea.setSelectionRange(start + delta, end + delta);
+    });
+  };
+
+  const wordCount = contentRef.current.trim().length
+    ? contentRef.current.trim().split(/\s+/).length
+    : 0;
+  const charCount = contentRef.current.length;
 
   if (loading) {
     return (
@@ -591,37 +660,39 @@ export default function DocumentEditor() {
       <main className="editor-main">
         <div className="editor-content-wrapper">
           <div style={{ position: 'relative' }}>
+            {/* Formatting toolbar */}
+            <div className="editor-toolbar">
+              <button type="button" onClick={() => wrapSelection('**')} title="Bold">
+                B
+              </button>
+              <button type="button" onClick={() => wrapSelection('*')} title="Italic">
+                I
+              </button>
+              <button type="button" onClick={() => wrapSelection('`')} title="Inline code">
+                {'</>'}
+              </button>
+              <button type="button" onClick={() => toggleListForSelection('- ')} title="Bullet list">
+                • List
+              </button>
+              <button type="button" onClick={() => toggleListForSelection('1. ')} title="Numbered list">
+                1.
+              </button>
+              <div className="editor-toolbar-spacer" />
+              <div className="editor-stats">
+                <span>{wordCount} words</span>
+                <span>{charCount} chars</span>
+              </div>
+            </div>
             <textarea
               ref={textareaRef}
               className="editor-textarea"
               value={content}
               onChange={(e) => {
-                if (!isApplyingRemoteEdit.current) {
-                  const newContent = e.target.value;
-                  setContent(newContent);
-                  contentRef.current = newContent;
-                  
-                  // Send edit via WebSocket for real-time sync IMMEDIATELY
-                  if (wsConnected && (isOwner || permission === 'write')) {
-                    // Clear any conflict errors when user is actively editing
-                    setConflictData(null);
-                    setError('');
-                    
-                    // Send immediately without debouncing for real-time sync
-                    console.log('[DocumentEditor] 📤 Sending edit via WebSocket, content length:', newContent.length);
-                    websocketService.sendEdit({
-                      content: newContent,
-                      version: lastSaveVersionRef.current,
-                      userId: localStorage.getItem('user_id')
-                    });
-                  } else {
-                    console.log('[DocumentEditor] ⚠️ Not sending edit - wsConnected:', wsConnected, 'permission:', permission, 'isOwner:', isOwner);
-                  }
-                }
+                applyContentChange(e.target.value);
               }}
               onKeyUp={(e) => {
                 // Send cursor position on key events
-                if (wsConnected && textareaRef.current) {
+                if (wsConnected && websocketService.isConnected() && textareaRef.current) {
                   const position = textareaRef.current.selectionStart;
                   websocketService.sendCursor({
                     position,
@@ -632,18 +703,7 @@ export default function DocumentEditor() {
               }}
               onMouseUp={(e) => {
                 // Send cursor position on mouse click
-                if (wsConnected && textareaRef.current) {
-                  const position = textareaRef.current.selectionStart;
-                  websocketService.sendCursor({
-                    position,
-                    userId: localStorage.getItem('user_id'),
-                    username: user?.username || user?.email || 'User'
-                  });
-                }
-              }}
-              onSelectionChange={(e) => {
-                // Send cursor position on selection change
-                if (wsConnected && textareaRef.current) {
+                if (wsConnected && websocketService.isConnected() && textareaRef.current) {
                   const position = textareaRef.current.selectionStart;
                   websocketService.sendCursor({
                     position,

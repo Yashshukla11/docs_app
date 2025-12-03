@@ -243,3 +243,4 @@ bool CollaborationService::checkAccess(const std::string& doc_id, const std::str
     return collabRepo.hasAccess(doc_id, user_id, required_permission);
 }
 
+

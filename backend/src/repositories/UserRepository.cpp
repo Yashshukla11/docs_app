@@ -30,6 +30,7 @@ std::string UserRepository::generateId()
 std::optional<User> UserRepository::createUser(const User& user)
 {
     auto& db = Database::getInstance();
+    std::lock_guard<std::mutex> lock(db.getMutex());
     sqlite3* conn = db.getConnection();
     
     if (!conn)
@@ -78,6 +79,7 @@ std::optional<User> UserRepository::createUser(const User& user)
 std::optional<User> UserRepository::findByEmail(const std::string& email)
 {
     auto& db = Database::getInstance();
+    std::lock_guard<std::mutex> lock(db.getMutex());
     sqlite3* conn = db.getConnection();
     
     if (!conn)
@@ -119,6 +121,7 @@ std::optional<User> UserRepository::findByEmail(const std::string& email)
 std::optional<User> UserRepository::findById(const std::string& id)
 {
     auto& db = Database::getInstance();
+    std::lock_guard<std::mutex> lock(db.getMutex());
     sqlite3* conn = db.getConnection();
     
     if (!conn)
@@ -160,6 +163,7 @@ std::optional<User> UserRepository::findById(const std::string& id)
 std::optional<User> UserRepository::findByUsername(const std::string& username)
 {
     auto& db = Database::getInstance();
+    std::lock_guard<std::mutex> lock(db.getMutex());
     sqlite3* conn = db.getConnection();
     
     if (!conn)
@@ -211,6 +215,7 @@ bool UserRepository::usernameExists(const std::string& username)
 bool UserRepository::updateUser(const User& user)
 {
     auto& db = Database::getInstance();
+    std::lock_guard<std::mutex> lock(db.getMutex());
     sqlite3* conn = db.getConnection();
     
     if (!conn)
@@ -247,6 +252,7 @@ bool UserRepository::updateUser(const User& user)
 bool UserRepository::deleteUser(const std::string& id)
 {
     auto& db = Database::getInstance();
+    std::lock_guard<std::mutex> lock(db.getMutex());
     sqlite3* conn = db.getConnection();
     
     if (!conn)

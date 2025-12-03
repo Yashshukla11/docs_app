@@ -364,8 +364,8 @@ void setupRoutes(crow::App<crow::CORSHandler> &app)
         std::string user_id;
     };
 
-    // WebSocket route: /api/documents/ws?doc_id={doc_id}&token={token}
-    CROW_WEBSOCKET_ROUTE(app, "/api/documents/ws")
+    // WebSocket route: /api/documents/ws/connect?doc_id={doc_id}&token={token}
+    CROW_WEBSOCKET_ROUTE(app, "/api/documents/ws/connect")
         .onaccept([](const crow::request &req, void **userdata)
                   {
             std::cout << "[WebSocket] Connection attempt to: " << req.url << std::endl;

@@ -15,7 +15,7 @@ class WebSocketService {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const hostname = window.location.hostname;
     const port = '8080';
-    return `${protocol}//${hostname}:${port}/api/documents/ws`;
+    return `${protocol}//${hostname}:${port}/api/documents/ws/connect`;
   }
 
   // Connect to WebSocket

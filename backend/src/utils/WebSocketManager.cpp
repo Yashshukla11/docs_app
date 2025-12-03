@@ -127,3 +127,4 @@ bool WebSocketManager::isUserInDocument(const std::string& doc_id, const std::st
     return false;
 }
 
+

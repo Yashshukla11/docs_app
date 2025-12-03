@@ -125,14 +125,12 @@ export const documentsAPI = {
     });
   },
 
-  update: async (docId, title, content, version = null) => {
-    const body = { title, content };
-    if (version !== null) {
-      body.version = version;
-    }
+  update: async (docId, title, content, _version = null) => {
+    // Ignore optimistic locking version on the client side.
+    // Always send the latest title/content and let the server persist it (last-write-wins).
     return fetchWithAuth(`/documents/${docId}`, {
       method: 'PATCH',
-      body: JSON.stringify(body),
+      body: JSON.stringify({ title, content }),
     });
   },
 

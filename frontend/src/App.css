@@ -2,3 +2,46 @@
 #root {
   min-height: 100vh;
 }
+
+.editor-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  background: #f9fafb;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px 8px 0 0;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.editor-toolbar button {
+  border: none;
+  background: #edf2f7;
+  color: #2d3748;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.05s ease;
+}
+
+.editor-toolbar button:hover {
+  background: #e2e8f0;
+  transform: translateY(-1px);
+}
+
+.editor-toolbar button:active {
+  transform: translateY(0);
+}
+
+.editor-toolbar-spacer {
+  flex: 1;
+}
+
+.editor-stats {
+  display: flex;
+  gap: 12px;
+  font-size: 11px;
+  color: #718096;
+}

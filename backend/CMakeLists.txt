@@ -34,5 +34,5 @@ target_link_libraries(docs_app PRIVATE
     OpenSSL::SSL
     OpenSSL::Crypto
 )
-target_compile_definitions(docs_app PRIVATE ASIO_STANDALONE)
+target_compile_definitions(docs_app PRIVATE ASIO_STANDALONE CROW_ENABLE_WEBSOCKET)
 target_include_directories(docs_app PRIVATE ${SQLITE3_INCLUDE_DIRS})

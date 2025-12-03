@@ -1,7 +1,9 @@
 #ifndef ROUTES_H
 #define ROUTES_H
 
+#define CROW_ENABLE_WEBSOCKET
 #include "crow.h"
+#include "crow/middlewares/cors.h"
 #include <string>
 #include <utility>
 
@@ -17,7 +19,7 @@
  * - Comments & Suggestions
  * - Export functionality (PDF, DOCX)
  */
-void setupRoutes(crow::SimpleApp &app);
+void setupRoutes(crow::App<crow::CORSHandler> &app);
 
 /**
  * Middleware function to verify JWT token and extract user ID

@@ -1,3 +1,4 @@
+#define CROW_ENABLE_WEBSOCKET
 #include "crow.h"
 #include "crow/middlewares/cors.h"
 #include "routes/routes.h"

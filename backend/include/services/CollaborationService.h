@@ -30,3 +30,4 @@ public:
                            const std::string& required_permission);
 };
 
+

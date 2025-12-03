@@ -28,3 +28,4 @@ private:
     Collaborator mapRowToCollaborator(sqlite3_stmt* stmt);
 };
 
+

@@ -1,4 +1,3 @@
-// WebSocket service for real-time collaboration
 class WebSocketService {
   constructor() {
     this.ws = null;
@@ -10,7 +9,6 @@ class WebSocketService {
     this.isConnecting = false;
   }
 
-  // Get WebSocket URL
   getWebSocketUrl(docId) {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const hostname = window.location.hostname;
@@ -18,25 +16,23 @@ class WebSocketService {
     return `${protocol}//${hostname}:${port}/api/documents/ws/connect`;
   }
 
-  // Connect to WebSocket
   connect(docId, onMessage, onError) {
     console.log('[WebSocket] connect() called with docId:', docId);
     console.log('[WebSocket] Current state - ws:', this.ws, 'readyState:', this.ws?.readyState, 'docId:', this.docId);
     
     if (this.ws && this.ws.readyState === WebSocket.OPEN && this.docId === docId) {
       console.log('[WebSocket] Already connected to this document');
-      return; // Already connected to this document
+      return; 
     }
 
     if (this.isConnecting) {
       console.log('[WebSocket] Already connecting, skipping...');
-      return; // Already connecting
+      return; 
     }
 
     this.isConnecting = true;
     this.docId = docId;
     
-    // Disconnect existing connection if any
     if (this.ws) {
       console.log('[WebSocket] Disconnecting existing connection...');
       this.disconnect();
@@ -52,7 +48,6 @@ class WebSocketService {
       return;
     }
 
-    // WebSocket doesn't support custom headers in browser, so we use query parameters
     const wsUrl = this.getWebSocketUrl(docId);
     const wsUrlWithParams = `${wsUrl}?doc_id=${encodeURIComponent(docId)}&token=${encodeURIComponent(token)}`;
     
@@ -63,7 +58,6 @@ class WebSocketService {
       this.ws = new WebSocket(wsUrlWithParams);
       console.log('[WebSocket] WebSocket object created, readyState:', this.ws.readyState);
       
-      // Set a timeout to detect if connection doesn't open
       const connectionTimeout = setTimeout(() => {
         if (this.ws && this.ws.readyState !== WebSocket.OPEN) {
           console.error('[WebSocket] Connection timeout - readyState:', this.ws.readyState);
@@ -112,7 +106,6 @@ class WebSocketService {
         this.isConnecting = false;
         this.ws = null;
         
-        // Log close codes for debugging
         if (event.code === 1006) {
           console.error('[WebSocket] Abnormal closure (1006) - connection lost without close frame');
         } else if (event.code === 1002) {
@@ -123,7 +116,6 @@ class WebSocketService {
           console.error('[WebSocket] Policy violation (1008)');
         }
         
-        // Attempt to reconnect if not a normal closure
         if (event.code !== 1000 && this.reconnectAttempts < this.maxReconnectAttempts) {
           this.reconnectAttempts++;
           console.log(`[WebSocket] Attempting to reconnect (${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
@@ -147,7 +139,6 @@ class WebSocketService {
     }
   }
 
-  // Disconnect WebSocket
   disconnect() {
     if (this.ws) {
       this.ws.close(1000, 'Client disconnect');
@@ -157,7 +148,6 @@ class WebSocketService {
     this.reconnectAttempts = 0;
   }
 
-  // Send message via WebSocket
   send(message) {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       const messageStr = JSON.stringify(message);
@@ -168,7 +158,6 @@ class WebSocketService {
     }
   }
 
-  // Send edit operation
   sendEdit(operation) {
     const message = {
       type: 'edit',
@@ -178,7 +167,6 @@ class WebSocketService {
     this.send(message);
   }
 
-  // Send cursor position
   sendCursor(data) {
     this.send({
       type: 'cursor',
@@ -188,7 +176,6 @@ class WebSocketService {
     });
   }
 
-  // Handle incoming messages
   handleMessage(message) {
     const listeners = this.listeners.get(message.type) || [];
     listeners.forEach(listener => {
@@ -200,7 +187,6 @@ class WebSocketService {
     });
   }
 
-  // Add message listener
   on(messageType, callback) {
     if (!this.listeners.has(messageType)) {
       this.listeners.set(messageType, []);
@@ -208,7 +194,6 @@ class WebSocketService {
     this.listeners.get(messageType).push(callback);
   }
 
-  // Remove message listener
   off(messageType, callback) {
     const listeners = this.listeners.get(messageType);
     if (listeners) {
@@ -219,19 +204,15 @@ class WebSocketService {
     }
   }
 
-  // Handle connection open
   onOpen() {
-    // Notify that connection is ready
     const listeners = this.listeners.get('open') || [];
     listeners.forEach(listener => listener());
   }
 
-  // Check if connected
   isConnected() {
     return this.ws && this.ws.readyState === WebSocket.OPEN;
   }
 }
 
-// Export singleton instance
 export const websocketService = new WebSocketService();
 

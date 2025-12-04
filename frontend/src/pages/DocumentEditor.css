@@ -144,10 +144,10 @@
 
 .editor-main {
   flex: 1;
-  max-width: 1200px;
+  max-width: 100%;
   width: 100%;
   margin: 0 auto;
-  padding: 40px;
+  padding: 24px 5vw;
 }
 
 .editor-textarea {
@@ -220,6 +220,11 @@
   display: flex;
   gap: 20px;
   position: relative;
+}
+
+.editor-main-pane {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .collaborators-sidebar {
@@ -369,4 +374,3 @@
 .editor-textarea:read-only:focus {
   box-shadow: 0 0 0 3px rgba(254, 235, 200, 0.3);
 }
-

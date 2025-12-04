@@ -356,21 +356,16 @@ void setupRoutes(crow::App<crow::CORSHandler> &app)
             return crow::response(500, response);
         } });
 
-    // WebSocket endpoint for real-time collaboration
-    // Connection data structure
     struct ConnectionData
     {
         std::string doc_id;
         std::string user_id;
     };
 
-    // WebSocket route: /api/documents/ws/connect?doc_id={doc_id}&token={token}
     CROW_WEBSOCKET_ROUTE(app, "/api/documents/ws/connect")
         .onaccept([](const crow::request &req, void **userdata)
                   {
             std::cout << "[WebSocket] Connection attempt to: " << req.url << std::endl;
-            
-            // Extract doc_id from query parameter
             auto doc_id_param = req.url_params.get("doc_id");
             if (!doc_id_param) {
                 std::cout << "[WebSocket] Missing doc_id parameter" << std::endl;
@@ -378,8 +373,6 @@ void setupRoutes(crow::App<crow::CORSHandler> &app)
             }
             std::string doc_id = std::string(doc_id_param);
             std::cout << "[WebSocket] Document ID: " << doc_id << std::endl;
-            
-            // Verify JWT token from query parameter (browser WebSocket doesn't support custom headers)
             auto token_param = req.url_params.get("token");
             if (!token_param) {
                 std::cout << "[WebSocket] Missing token parameter" << std::endl;
@@ -398,8 +391,6 @@ void setupRoutes(crow::App<crow::CORSHandler> &app)
                 return false;
             }
             std::cout << "[WebSocket] User ID: " << user_id << std::endl;
-            
-            // Check access to document
             bool hasAccess = CollaborationService::checkAccess(doc_id, user_id, "read");
             if (!hasAccess) {
                 std::cout << "[WebSocket] Access denied for user " << user_id << " to document " << doc_id << std::endl;
@@ -407,8 +398,6 @@ void setupRoutes(crow::App<crow::CORSHandler> &app)
             }
             
             std::cout << "[WebSocket] Connection accepted for user " << user_id << " to document " << doc_id << std::endl;
-            
-            // Store doc_id and user_id in userdata
             *userdata = new ConnectionData{doc_id, user_id};
             return true; })
         .onopen([](crow::websocket::connection &conn)
@@ -418,7 +407,6 @@ void setupRoutes(crow::App<crow::CORSHandler> &app)
                 std::cout << "[WebSocket] Connection opened for user " << data->user_id << " to document " << data->doc_id << std::endl;
                 WebSocketManager::getInstance().joinDocument(data->doc_id, &conn, data->user_id);
                 
-                // Get username for the user
                 std::string username = "User";
                 try {
                     UserRepository userRepo;
@@ -430,7 +418,6 @@ void setupRoutes(crow::App<crow::CORSHandler> &app)
                     // Use default username if lookup fails
                 }
                 
-                // Notify others that user joined
                 crow::json::wvalue join_msg;
                 join_msg["type"] = "user_joined";
                 join_msg["user_id"] = data->user_id;
@@ -443,7 +430,6 @@ void setupRoutes(crow::App<crow::CORSHandler> &app)
                  {
             auto* data = static_cast<ConnectionData*>(conn.userdata());
             if (data) {
-                // Notify others that user left
                 crow::json::wvalue leave_msg;
                 leave_msg["type"] = "user_left";
                 leave_msg["user_id"] = data->user_id;
@@ -468,9 +454,6 @@ void setupRoutes(crow::App<crow::CORSHandler> &app)
                 std::string type = msg["type"].s();
                 
                 if (type == "edit") {
-                    // For real-time collaboration, just broadcast edits
-                    // Don't save to DB on every keystroke - let HTTP save handle persistence
-                    // This prevents version conflicts from rapid edits
                     std::cout << "[WebSocket] Received edit message from user " << conn_data->user_id << " for document " << conn_data->doc_id << std::endl;
                     auto edit_msg = crow::json::load(data);
                     if (edit_msg) {
@@ -485,15 +468,12 @@ void setupRoutes(crow::App<crow::CORSHandler> &app)
                         }
                         broadcast_msg["userId"] = conn_data->user_id;
                         std::string edit_msg_str = broadcast_msg.dump();
-                        // Broadcast to ALL users including sender (so everyone gets updates)
                         WebSocketManager::getInstance().broadcastToDocument(conn_data->doc_id, edit_msg_str);
                         std::cout << "[WebSocket] Broadcasted edit message to all users in document " << conn_data->doc_id << std::endl;
                     } else {
-                        // Fallback: broadcast original
                         WebSocketManager::getInstance().broadcastToDocument(conn_data->doc_id, data, &conn);
                     }
                 } else if (type == "cursor") {
-                    // Get username and add to cursor message
                     std::string username = "User";
                     try {
                         UserRepository userRepo;
@@ -505,7 +485,6 @@ void setupRoutes(crow::App<crow::CORSHandler> &app)
                         // Use default username if lookup fails
                     }
                     
-                    // Parse and rebuild cursor message with username
                     auto cursor_msg = crow::json::load(data);
                     if (cursor_msg) {
                         crow::json::wvalue cursor_wmsg;
@@ -520,11 +499,9 @@ void setupRoutes(crow::App<crow::CORSHandler> &app)
                         std::string cursor_msg_str = cursor_wmsg.dump();
                         WebSocketManager::getInstance().broadcastToDocument(conn_data->doc_id, cursor_msg_str, &conn);
                     } else {
-                        // Fallback: just broadcast original
                         WebSocketManager::getInstance().broadcastToDocument(conn_data->doc_id, data, &conn);
                     }
                 } else if (type == "save") {
-                    // Explicit save request via WebSocket (optional, can use HTTP instead)
                     if (msg.has("content")) {
                         try {
                             std::string content = msg["content"].s();
@@ -536,7 +513,6 @@ void setupRoutes(crow::App<crow::CORSHandler> &app)
                             if (doc.has_value()) {
                                 std::string doc_title = title.empty() ? doc.value().getTitle() : title;
                                 
-                                // Update document via service (with version check)
                                 DocumentService::updateDocument(
                                     conn_data->doc_id,
                                     conn_data->user_id,
@@ -545,7 +521,6 @@ void setupRoutes(crow::App<crow::CORSHandler> &app)
                                     expected_version
                                 );
                                 
-                                // Get updated document to broadcast with new version
                                 auto updatedDoc = docRepo.findById(conn_data->doc_id);
                                 if (updatedDoc.has_value()) {
                                     crow::json::wvalue save_msg;
@@ -555,12 +530,10 @@ void setupRoutes(crow::App<crow::CORSHandler> &app)
                                     save_msg["userId"] = conn_data->user_id;
                                     std::string save_msg_str = save_msg.dump();
                                     
-                                    // Broadcast to all users
                                     WebSocketManager::getInstance().broadcastToDocument(conn_data->doc_id, save_msg_str);
                                 }
                             }
                         } catch (const std::exception& e) {
-                            // Send error back to sender only
                             crow::json::wvalue error_msg;
                             error_msg["type"] = "save_error";
                             error_msg["error"] = e.what();

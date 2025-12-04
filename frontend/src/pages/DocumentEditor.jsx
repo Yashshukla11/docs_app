@@ -32,6 +32,8 @@ export default function DocumentEditor() {
   const [shareEmail, setShareEmail] = useState('');
   const [sharePermission, setSharePermission] = useState('write');
   const [sharing, setSharing] = useState(false);
+  const [historyIndex, setHistoryIndex] = useState(-1);
+  const historyRef = useRef({ stack: [], index: -1 });
   const { user, logout } = useAuth();
   const navigate = useNavigate();
 
@@ -126,6 +128,11 @@ export default function DocumentEditor() {
       const docVersion = data.document.version || 1;
       setVersion(docVersion);
       lastSaveVersionRef.current = docVersion; // Initialize last saved version
+      historyRef.current = {
+        stack: [{ content: data.document.content || '', selectionStart: 0, selectionEnd: 0 }],
+        index: 0
+      };
+      setHistoryIndex(0);
       
       // Check if user is owner
       const userId = localStorage.getItem('user_id');
@@ -139,14 +146,10 @@ export default function DocumentEditor() {
         setPermission('write');
       }
       
-      // Load collaborators if owner
       if (owner) {
         await loadCollaborators();
       }
       
-      // Connect to WebSocket IMMEDIATELY for real-time collaboration
-      // Don't wait - connect as soon as document is loaded
-      // Permission check happens on backend, so we can attempt connection
       console.log('[DocumentEditor] Connecting WebSocket for document:', id);
       connectWebSocket();
     } catch (err) {
@@ -162,10 +165,8 @@ export default function DocumentEditor() {
   const connectWebSocket = () => {
     console.log('[DocumentEditor] connectWebSocket called for document:', id);
     
-    // Disconnect any existing connection first
     websocketService.disconnect();
     
-    // Connect immediately - no delay
     console.log('[DocumentEditor] Attempting WebSocket connection...');
     websocketService.connect(
       id,
@@ -189,11 +190,9 @@ export default function DocumentEditor() {
     websocketService.on('open', () => {
       console.log('[DocumentEditor] WebSocket connected successfully!');
       setWsConnected(true);
-      // Clear any existing conflict errors when WebSocket connects
       setConflictData(null);
       setError('');
       
-      // Send initial cursor position
       if (textareaRef.current) {
         const position = textareaRef.current.selectionStart;
         websocketService.sendCursor({
@@ -214,7 +213,6 @@ export default function DocumentEditor() {
   const handleWebSocketMessage = (message) => {
     switch (message.type) {
       case 'user_joined':
-        // Add user to active users list
         if (message.user_id && message.user_id !== localStorage.getItem('user_id')) {
           setActiveUsers(prev => {
             if (!prev.find(u => u.user_id === message.user_id)) {
@@ -225,7 +223,6 @@ export default function DocumentEditor() {
         }
         break;
       case 'user_left':
-        // Remove user from active users and their cursor
         if (message.user_id) {
           setActiveUsers(prev => prev.filter(u => u.user_id !== message.user_id));
           setUserCursors(prev => {
@@ -239,7 +236,6 @@ export default function DocumentEditor() {
         handleRemoteEdit(message);
         break;
       case 'saved':
-        // Document was saved by another user, update version
         if (message.version) {
           setVersion(message.version);
           lastSaveVersionRef.current = message.version;
@@ -249,7 +245,6 @@ export default function DocumentEditor() {
         }
         break;
       case 'cursor':
-        // Update cursor position for other users
         if (message.userId && message.userId !== localStorage.getItem('user_id') && message.position !== undefined) {
           setUserCursors(prev => {
             const newCursors = new Map(prev);
@@ -270,7 +265,6 @@ export default function DocumentEditor() {
   const handleRemoteEdit = (message) => {
     console.log('[DocumentEditor] handleRemoteEdit called:', message);
     
-    // Don't apply our own edits back to ourselves
     const currentUserId = localStorage.getItem('user_id');
     const messageUserId = message.userId || message.user_id;
     
@@ -278,7 +272,6 @@ export default function DocumentEditor() {
     
     if (messageUserId === currentUserId) {
       console.log('[DocumentEditor] Ignoring own edit');
-      // This is our own edit - just update version if provided, don't update content
       if (message.version) {
         setVersion(message.version);
         lastSaveVersionRef.current = message.version;
@@ -286,59 +279,47 @@ export default function DocumentEditor() {
       return;
     }
 
-    // Apply remote edit to content immediately - don't show conflict errors for real-time updates
     if (message.content !== undefined) {
       const currentContent = contentRef.current;
       const newContent = message.content;
       
-      // Always update if content is different (even slightly)
       if (currentContent !== newContent) {
         console.log('Applying remote edit from user:', messageUserId, 'Content length:', newContent.length);
         
-        // Set flag to prevent auto-save from triggering during remote edit
         isApplyingRemoteEdit.current = true;
         
-        // Preserve cursor position if possible
         const textarea = textareaRef.current;
         const cursorPos = textarea ? textarea.selectionStart : 0;
         
-        // Clear conflict errors FIRST before updating content
         setConflictData(null);
         setError('');
         
-        // Update content immediately
         setContent(newContent);
         contentRef.current = newContent;
         
-        // Update document state immediately
         if (document) {
           setDocument({ ...document, content: newContent, version: message.version || document.version });
         }
         
-        // Update version if provided
         if (message.version) {
           setVersion(message.version);
           lastSaveVersionRef.current = message.version;
         }
         
-        // Restore cursor position after content update
         if (textarea && cursorPos <= newContent.length) {
           setTimeout(() => {
             textarea.setSelectionRange(cursorPos, cursorPos);
           }, 0);
         }
         
-        // Reset flag after a short delay
         setTimeout(() => {
           isApplyingRemoteEdit.current = false;
         }, 200);
       } else {
-        // Content is the same, but still update version if provided
         if (message.version) {
           setVersion(message.version);
           lastSaveVersionRef.current = message.version;
         }
-        // Still clear conflicts even if content is same
         setConflictData(null);
         setError('');
       }
@@ -373,7 +354,6 @@ export default function DocumentEditor() {
       return;
     }
 
-    // Check permission for non-owners
     if (!isOwner && permission !== 'write') {
       setError('You have read-only access. Cannot save changes.');
       return;
@@ -487,14 +467,37 @@ export default function DocumentEditor() {
     }
   };
 
-  const applyContentChange = (newContent) => {
+  const pushHistory = (contentValue, selectionStart, selectionEnd) => {
+    const stack = historyRef.current.stack;
+    const index = historyRef.current.index;
+
+    const newStack = stack.slice(0, index + 1);
+    const last = newStack[newStack.length - 1];
+    if (last && last.content === contentValue) {
+      return;
+    }
+
+    newStack.push({ content: contentValue, selectionStart, selectionEnd });
+    historyRef.current = { stack: newStack, index: newStack.length - 1 };
+    setHistoryIndex(newStack.length - 1);
+  };
+
+  const applyContentChange = (newContent, options = {}) => {
     if (isApplyingRemoteEdit.current) return;
+
+    const { fromHistory = false, selectionStart, selectionEnd } = options;
+
+    if (!fromHistory) {
+      const textarea = textareaRef.current;
+      const selStart = selectionStart ?? textarea?.selectionStart ?? newContent.length;
+      const selEnd = selectionEnd ?? textarea?.selectionEnd ?? selStart;
+      pushHistory(newContent, selStart, selEnd);
+    }
 
     setContent(newContent);
     contentRef.current = newContent;
 
     if (websocketService.isConnected() && (isOwner || permission === 'write')) {
-      // Clear any conflict errors when user is actively editing
       setConflictData(null);
       setError('');
 
@@ -504,8 +507,6 @@ export default function DocumentEditor() {
         version: lastSaveVersionRef.current,
         userId: localStorage.getItem('user_id')
       });
-    } else {
-      console.log('[DocumentEditor] ⚠️ Not sending edit - websocket not connected or no write permission');
     }
   };
 
@@ -518,7 +519,7 @@ export default function DocumentEditor() {
     const selected = value.slice(start, end);
     const newText = value.slice(0, start) + before + selected + after + value.slice(end);
 
-    applyContentChange(newText);
+    applyContentChange(newText, { selectionStart: start, selectionEnd: end });
 
     // Restore selection inside wrapped text
     requestAnimationFrame(() => {
@@ -551,7 +552,7 @@ export default function DocumentEditor() {
       .join('\n');
 
     const newText = value.slice(0, lineStart) + updated + value.slice(lineEnd);
-    applyContentChange(newText);
+    applyContentChange(newText, { selectionStart: start, selectionEnd: end });
 
     requestAnimationFrame(() => {
       textarea.focus();
@@ -564,6 +565,38 @@ export default function DocumentEditor() {
     ? contentRef.current.trim().split(/\s+/).length
     : 0;
   const charCount = contentRef.current.length;
+
+  const undo = () => {
+    const { stack, index } = historyRef.current;
+    if (index <= 0) return;
+    const newIndex = index - 1;
+    const entry = stack[newIndex];
+    historyRef.current.index = newIndex;
+    setHistoryIndex(newIndex);
+    applyContentChange(entry.content, { fromHistory: true });
+    requestAnimationFrame(() => {
+      if (textareaRef.current) {
+        textareaRef.current.focus();
+        textareaRef.current.setSelectionRange(entry.selectionStart, entry.selectionEnd);
+      }
+    });
+  };
+
+  const redo = () => {
+    const { stack, index } = historyRef.current;
+    if (index >= stack.length - 1) return;
+    const newIndex = index + 1;
+    const entry = stack[newIndex];
+    historyRef.current.index = newIndex;
+    setHistoryIndex(newIndex);
+    applyContentChange(entry.content, { fromHistory: true });
+    requestAnimationFrame(() => {
+      if (textareaRef.current) {
+        textareaRef.current.focus();
+        textareaRef.current.setSelectionRange(entry.selectionStart, entry.selectionEnd);
+      }
+    });
+  };
 
   if (loading) {
     return (
@@ -659,7 +692,7 @@ export default function DocumentEditor() {
 
       <main className="editor-main">
         <div className="editor-content-wrapper">
-          <div style={{ position: 'relative' }}>
+          <div className="editor-main-pane" style={{ position: 'relative' }}>
             {/* Formatting toolbar */}
             <div className="editor-toolbar">
               <button type="button" onClick={() => wrapSelection('**')} title="Bold">
@@ -677,6 +710,12 @@ export default function DocumentEditor() {
               <button type="button" onClick={() => toggleListForSelection('1. ')} title="Numbered list">
                 1.
               </button>
+              <button type="button" onClick={undo} title="Undo (Ctrl+Z / Cmd+Z)">
+                ↺
+              </button>
+              <button type="button" onClick={redo} title="Redo (Ctrl+Y / Cmd+Shift+Z)">
+                ↻
+              </button>
               <div className="editor-toolbar-spacer" />
               <div className="editor-stats">
                 <span>{wordCount} words</span>
@@ -687,6 +726,28 @@ export default function DocumentEditor() {
               ref={textareaRef}
               className="editor-textarea"
               value={content}
+              onKeyDown={(e) => {
+                const isMac = navigator.platform.toUpperCase().includes('MAC');
+                const mod = isMac ? e.metaKey : e.ctrlKey;
+                if (!mod) return;
+
+                if (e.key === 'z' || e.key === 'Z') {
+                  e.preventDefault();
+                  if (e.shiftKey && !isMac) {
+                    redo();
+                  } else if (e.shiftKey && isMac) {
+                    redo();
+                  } else {
+                    undo();
+                  }
+                  return;
+                }
+
+                if (e.key === 'y' || e.key === 'Y') {
+                  e.preventDefault();
+                  redo();
+                }
+              }}
               onChange={(e) => {
                 applyContentChange(e.target.value);
               }}
